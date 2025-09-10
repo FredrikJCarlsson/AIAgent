@@ -1,0 +1,19 @@
+{
+  "name": "ai-cli-mcp-workspace",
+  "version": "1.0.0",
+  "description": "AI CLI Agent and MCP Server workspace",
+  "private": true,
+  "workspaces": [
+    "cli-agent",
+    "mcp-server"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "dev": "npm run dev --workspaces",
+    "install:all": "npm install --workspaces"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
+  }
+}
