@@ -59,21 +59,17 @@ class AICLIAgent {
       });
 
       const transport = new StdioClientTransport({
-        reader: mcpProcess.stdout,
-        writer: mcpProcess.stdin
+        command: 'node',
+        args: [mcpServerPath]
       });
 
-      const client = new Client(
-        {
-          name: 'ai-cli-agent',
-          version: '1.0.0',
-        },
-        {
-          capabilities: {},
-        }
-      );
+      const client = new Client({
+        name: 'ai-cli-agent',
+        version: '1.0.0'
+      });
 
-      await client.connect(transport);
+      await transport.start();
+      client.connect(transport);
       
       this.mcpServers.push({
         name: 'filesystem',
@@ -123,9 +119,7 @@ class AICLIAgent {
     const allTools = [];
     for (const server of this.mcpServers) {
       try {
-        const response = await server.client.request({
-          method: 'tools/list'
-        }, {});
+        const response = await server.client.listTools();
         allTools.push(...response.tools);
       } catch (error) {
         console.error(`Error getting tools from ${server.name}:`, error);
@@ -137,13 +131,10 @@ class AICLIAgent {
   async callMCPTool(toolName: string, args: any) {
     for (const server of this.mcpServers) {
       try {
-        const response = await server.client.request({
-          method: 'tools/call',
-          params: {
-            name: toolName,
-            arguments: args
-          }
-        }, {});
+        const response = await server.client.callTool({
+          name: toolName,
+          arguments: args
+        });
         return response;
       } catch (error) {
         // Try next server
@@ -271,12 +262,13 @@ class AICLIAgent {
     const args: any = {};
     if (tool.inputSchema?.properties) {
       for (const [key, prop] of Object.entries(tool.inputSchema.properties)) {
+        const propTyped = prop as any;
         const { value } = await inquirer.prompt([
           {
             type: 'input',
             name: 'value',
-            message: `Enter ${key}${prop.description ? ` (${prop.description})` : ''}:`,
-            default: (prop as any).default || ''
+            message: `Enter ${key}${propTyped.description ? ` (${propTyped.description})` : ''}:`,
+            default: propTyped.default || ''
           }
         ]);
         if (value) args[key] = value;
@@ -288,7 +280,7 @@ class AICLIAgent {
       const result = await this.callMCPTool(toolName, args);
       spinner.succeed('Tool executed successfully');
       console.log(chalk.green('\n📄 Result:'));
-      console.log(result.content[0].text);
+      console.log((result as any).content[0].text);
     } catch (error) {
       spinner.fail('Tool execution failed');
       console.error(error);
