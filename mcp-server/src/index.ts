@@ -17,17 +17,10 @@ class FileSystemMCPServer {
 
   constructor(basePath: string = process.cwd()) {
     this.basePath = resolve(basePath);
-    this.server = new Server(
-      {
-        name: 'filesystem-mcp-server',
-        version: '1.0.0',
-      },
-      {
-        capabilities: {
-          tools: {},
-        },
-      }
-    );
+    this.server = new Server({
+      name: 'filesystem-mcp-server',
+      version: '1.0.0'
+    });
 
     this.setupToolHandlers();
   }
@@ -88,11 +81,11 @@ class FileSystemMCPServer {
       try {
         switch (name) {
           case 'list_files':
-            return await this.listFiles(args.path || '.');
+            return await this.listFiles((args as any)?.path || '.');
           case 'list_directories':
-            return await this.listDirectories(args.path || '.');
+            return await this.listDirectories((args as any)?.path || '.');
           case 'get_file_content':
-            return await this.getFileContent(args.path);
+            return await this.getFileContent((args as any)?.path);
           default:
             throw new Error(`Unknown tool: ${name}`);
         }
