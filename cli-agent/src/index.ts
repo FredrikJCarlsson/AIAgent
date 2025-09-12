@@ -209,13 +209,31 @@ class AICLIAgent {
           },
           { role: "user", content: message },
         ],
-        tools,
+        // tools: tools.length > 0 ? tools : undefined,
         stream: false,
       });
 
       spinner.stop();
       console.log(chalk.cyan("\n🤖 AI Response:"));
-      console.log(chalk.white(response.message.content));
+      
+      // Check if the AI wants to use tools
+      if (response.message.tool_calls && response.message.tool_calls.length > 0) {
+        console.log(chalk.yellow("AI wants to use tools:"));
+        for (const toolCall of response.message.tool_calls) {
+          console.log(chalk.gray(`- ${toolCall.function.name}: ${JSON.stringify(toolCall.function.arguments)}`));
+          
+          // Execute the tool call
+          try {
+            const toolResult = await this.callMCPTool(toolCall.function.name, toolCall.function.arguments);
+            console.log(chalk.green("Tool result:"));
+            console.log(chalk.white((toolResult as any).content[0].text));
+          } catch (error) {
+            console.log(chalk.red("Tool execution failed:"), error);
+          }
+        }
+      } else {
+        console.log(chalk.white(response.message.content));
+      }
 
       // Check if the AI wants to use any tools
       if (
@@ -301,19 +319,19 @@ class AICLIAgent {
         name: "toolName",
         message: "Select a tool:",
         choices: tools.map((tool) => ({
-          name: `${tool.name} - ${tool.description}`,
-          value: tool.name,
+          name: `${tool.function.name} - ${tool.function.description}`,
+          value: tool.function.name,
         })),
       },
     ]);
 
-    const tool = tools.find((t) => t.name === toolName);
+    const tool = tools.find((t) => t.function.name === toolName);
     if (!tool) return;
 
     // Get tool arguments
     const args: any = {};
-    if (tool.inputSchema?.properties) {
-      for (const [key, prop] of Object.entries(tool.inputSchema.properties)) {
+    if (tool.function.parameters?.properties) {
+      for (const [key, prop] of Object.entries(tool.function.parameters.properties)) {
         const propTyped = prop as any;
         const { value } = await inquirer.prompt([
           {
@@ -350,7 +368,7 @@ class AICLIAgent {
 
     console.log(chalk.blue("\n🔧 Available MCP Tools:"));
     tools.forEach((tool) => {
-      console.log(chalk.white(`  • ${tool.name}: ${tool.description}`));
+      console.log(chalk.white(`  • ${tool.function.name}: ${tool.function.description}`));
     });
   }
 
