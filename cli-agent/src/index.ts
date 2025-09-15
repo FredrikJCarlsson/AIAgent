@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { program } from "commander";
-import { Ollama } from "ollama";
+import { ChatResponse, Ollama } from "ollama";
 import chalk from "chalk";
 import inquirer from "inquirer";
 import ora from "ora";
@@ -9,22 +9,20 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { spawn } from "child_process";
 import { join } from "path";
+import { AIInteraction, MCPServer } from "./ai-interaction.js";
 
-interface MCPServer {
-  name: string;
-  process: any;
-  client: Client;
-}
 
 class AICLIAgent {
   private ollama: Ollama;
   private mcpServers: MCPServer[] = [];
   private currentModel: string = "llama3.2";
+  private aiInteraction: AIInteraction;
 
   constructor() {
     this.ollama = new Ollama({
       host: "http://localhost:11434",
     });
+    this.aiInteraction = new AIInteraction(this.ollama, this.mcpServers, this.currentModel);
   }
 
   async initialize() {
@@ -74,6 +72,9 @@ class AICLIAgent {
         process: transport, // Store transport instead of process
         client: client,
       });
+      
+      // Update AI interaction with new MCP servers
+      this.aiInteraction.updateMCPServers(this.mcpServers);
 
       spinner.succeed("MCP servers started successfully");
     } catch (error) {
@@ -112,148 +113,8 @@ class AICLIAgent {
     ]);
 
     this.currentModel = model;
+    this.aiInteraction.updateModel(model);
     console.log(chalk.green(`Model changed to: ${model}`));
-  }
-
-  async getMCPTools() {
-    const allTools: {
-      type: "function";
-      function: {
-        name: string;
-        description?: string;
-        parameters: {
-          type: "object";
-          required?: string[];
-          properties?: {
-            [key: string]: {
-              type?: string | string[];
-              description?: string;
-              enum?: any[];
-            };
-          };
-        };
-      };
-    }[] = [];
-
-    for (const server of this.mcpServers) {
-      try {
-        const response = await server.client.listTools();
-
-        // Convert MCP tool → Ollama tool format
-        const mapped = response.tools.map((t: any) => ({
-          type: "function" as const,
-          function: {
-            name: t.name,
-            description: t.description,
-            parameters: (t.inputSchema ?? {
-              type: "object",
-              properties: {},
-            }) as {
-              type: "object";
-              required?: string[];
-              properties?: {
-                [key: string]: {
-                  type?: string | string[];
-                  description?: string;
-                  enum?: any[];
-                };
-              };
-            },
-          },
-        }));
-
-        allTools.push(...mapped);
-
-        console.log(chalk.green(`Tools from ${server.name}:`), mapped);
-      } catch (error) {
-        console.error(`Error getting tools from ${server.name}:`, error);
-      }
-    }
-
-    if (allTools.length === 0) {
-      console.log(chalk.yellow("No MCP tools available"));
-    }
-
-    return allTools;
-  }
-
-  async callMCPTool(toolName: string, args: any) {
-    for (const server of this.mcpServers) {
-      try {
-        const response = await server.client.callTool({
-          name: toolName,
-          arguments: args,
-        });
-        return response;
-      } catch (error) {
-        // Try next server
-        continue;
-      }
-    }
-
-    throw new Error(`Tool ${toolName} not found on any MCP server`);
-  }
-
-  async chatWithAI(message: string) {
-    const spinner = ora("Thinking...").start();
-
-    try {
-      const tools = await this.getMCPTools();
-
-      const response = await this.ollama.chat({
-        model: this.currentModel,
-        messages: [
-          {
-            role: "system",
-            content: "You are a helpful AI assistant with access to tools.",
-          },
-          { role: "user", content: message },
-        ],
-        // tools: tools.length > 0 ? tools : undefined,
-        stream: false,
-      });
-
-      spinner.stop();
-      console.log(chalk.cyan("\n🤖 AI Response:"));
-      
-      // Check if the AI wants to use tools
-      if (response.message.tool_calls && response.message.tool_calls.length > 0) {
-        console.log(chalk.yellow("AI wants to use tools:"));
-        for (const toolCall of response.message.tool_calls) {
-          console.log(chalk.gray(`- ${toolCall.function.name}: ${JSON.stringify(toolCall.function.arguments)}`));
-          
-          // Execute the tool call
-          try {
-            const toolResult = await this.callMCPTool(toolCall.function.name, toolCall.function.arguments);
-            console.log(chalk.green("Tool result:"));
-            console.log(chalk.white((toolResult as any).content[0].text));
-          } catch (error) {
-            console.log(chalk.red("Tool execution failed:"), error);
-          }
-        }
-      } else {
-        console.log(chalk.white(response.message.content));
-      }
-
-      // Check if the AI wants to use any tools
-      if (
-        message.toLowerCase().includes("list") ||
-        message.toLowerCase().includes("file") ||
-        message.toLowerCase().includes("directory")
-      ) {
-        console.log(
-          chalk.yellow(
-            "\n💡 Tip: You can use MCP tools directly with commands like:"
-          )
-        );
-        console.log(chalk.gray("  - list_files [path]"));
-        console.log(chalk.gray("  - list_directories [path]"));
-        console.log(chalk.gray("  - get_file_content <file_path>"));
-      }
-    } catch (error) {
-      spinner.fail("Error communicating with AI");
-      console.error(error);
-    }
   }
 
   async runInteractiveMode() {
@@ -282,7 +143,7 @@ class AICLIAgent {
               message: "Enter your message:",
             },
           ]);
-          await this.chatWithAI(message);
+          await this.aiInteraction.chatWithAI(message);
           break;
 
         case "mcp":
@@ -294,7 +155,7 @@ class AICLIAgent {
           break;
 
         case "tools":
-          await this.listTools();
+          await this.aiInteraction.getMCPTools();
           break;
 
         case "exit":
@@ -307,7 +168,7 @@ class AICLIAgent {
   }
 
   async runMCPTool() {
-    const tools = await this.getMCPTools();
+    const tools = await this.aiInteraction.getMCPTools();
     if (tools.length === 0) {
       console.log(chalk.yellow("No MCP tools available"));
       return;
@@ -331,7 +192,9 @@ class AICLIAgent {
     // Get tool arguments
     const args: any = {};
     if (tool.function.parameters?.properties) {
-      for (const [key, prop] of Object.entries(tool.function.parameters.properties)) {
+      for (const [key, prop] of Object.entries(
+        tool.function.parameters.properties
+      )) {
         const propTyped = prop as any;
         const { value } = await inquirer.prompt([
           {
@@ -349,7 +212,7 @@ class AICLIAgent {
 
     const spinner = ora("Executing tool...").start();
     try {
-      const result = await this.callMCPTool(toolName, args);
+      const result = await this.aiInteraction.callMCPTool(toolName, args);
       spinner.succeed("Tool executed successfully");
       console.log(chalk.green("\n📄 Result:"));
       console.log((result as any).content[0].text);
@@ -357,19 +220,6 @@ class AICLIAgent {
       spinner.fail("Tool execution failed");
       console.error(error);
     }
-  }
-
-  async listTools() {
-    const tools = await this.getMCPTools();
-    if (tools.length === 0) {
-      console.log(chalk.yellow("No MCP tools available"));
-      return;
-    }
-
-    console.log(chalk.blue("\n🔧 Available MCP Tools:"));
-    tools.forEach((tool) => {
-      console.log(chalk.white(`  • ${tool.function.name}: ${tool.function.description}`));
-    });
   }
 
   async cleanup() {
@@ -403,12 +253,7 @@ program
 
     try {
       await agent.initialize();
-
-      if (options.chat) {
-        await agent.chatWithAI(options.chat);
-      } else {
-        await agent.runInteractiveMode();
-      }
+      await agent.runInteractiveMode();
     } catch (error) {
       console.error("Error:", error);
       await agent.cleanup();
