@@ -1,43 +1,46 @@
 import { ChatResponse, Ollama } from "ollama";
 import chalk from "chalk";
 import ora from "ora";
-
-export interface MCPServer {
-  name: string;
-  process: any;
-  client: any;
-}
+import { MCPServer, MCPInteraction } from "./mcp-interaction";
 
 export class AIInteraction {
   private ollama: Ollama;
-  private mcpServers: MCPServer[];
   private currentModel: string;
+  private mcpInteraction: MCPInteraction;
 
-  constructor(ollama: Ollama, mcpServers: MCPServer[], currentModel: string) {
+  constructor(ollama: Ollama, mcpInteraction: MCPInteraction, currentModel: string) {
     this.ollama = ollama;
-    this.mcpServers = mcpServers;
+    this.mcpInteraction = mcpInteraction;
     this.currentModel = currentModel;
   }
 
   async sendAIRequest(
-    userPrompt: string,
-    systemPrompt: string,
-    history: string[],
+    messages: { role: "system" | "user" | "assistant"; content: string }[],
     useTools: boolean
   ): Promise<ChatResponse | null> {
     try {
-      const tools = await this.getMCPTools();
+      const tools = await this.mcpInteraction.getMCPTools();
+
+      // Debug: Show what tools are being passed to the AI
+      if (useTools) {
+        if (tools.length > 0) {
+          console.log(
+            chalk.gray(
+              `\n🔧 Passing ${tools.length} tools to AI: ${tools
+                .map((t) => t.function.name)
+                .join(", ")}`
+            )
+          );
+        } else {
+          console.log(chalk.gray("\n⚠️  No tools available to pass to AI"));
+        }
+      } else {
+        console.log(chalk.gray("\n🚫 Tools disabled for this request"));
+      }
 
       const response = await this.ollama.chat({
         model: this.currentModel,
-        messages: [
-          {
-            role: "system",
-            content: systemPrompt,
-          },
-          ...history.map((h) => ({ role: "user", content: h })),
-          { role: "user", content: userPrompt },
-        ],
+        messages: messages,
         tools: useTools ? (tools.length > 0 ? tools : undefined) : undefined,
         stream: false,
       });
@@ -48,167 +51,115 @@ export class AIInteraction {
     }
   }
 
-  async getMCPTools() {
-    const allTools: {
-      type: "function";
-      function: {
-        name: string;
-        description?: string;
-        parameters: {
-          type: "object";
-          required?: string[];
-          properties?: {
-            [key: string]: {
-              type?: string | string[];
-              description?: string;
-              enum?: any[];
-            };
-          };
-        };
-      };
-    }[] = [];
-
-    for (const server of this.mcpServers) {
-      try {
-        const response = await server.client.listTools();
-
-        // Convert MCP tool → Ollama tool format
-        const mapped = response.tools.map((t: any) => ({
-          type: "function" as const,
-          function: {
-            name: t.name,
-            description: t.description,
-            parameters: (t.inputSchema ?? {
-              type: "object",
-              properties: {},
-            }) as {
-              type: "object";
-              required?: string[];
-              properties?: {
-                [key: string]: {
-                  type?: string | string[];
-                  description?: string;
-                  enum?: any[];
-                };
-              };
-            },
-          },
-        }));
-
-        allTools.push(...mapped);
-
-        // console.log(chalk.green(`Tools from ${server.name}:`), mapped);
-      } catch (error) {
-        console.error(`Error getting tools from ${server.name}:`, error);
-      }
-    }
-
-    if (allTools.length === 0) {
-      console.log(chalk.yellow("No MCP tools available"));
-    }
-
-    return allTools;
-  }
-
-  async callMCPTool(toolName: string, args: any) {
-    console.log(
-      chalk.cyan(
-        "\nCalling tool: " + toolName + " with args: " + JSON.stringify(args)
-      )
-    );
-    for (const server of this.mcpServers) {
-      try {
-        const response = await server.client.callTool({
-          name: toolName,
-          arguments: args,
-        });
-        return response;
-      } catch (error) {
-        // Try next server
-        continue;
-      }
-    }
-
-    throw new Error(`Tool ${toolName} not found on any MCP server`);
-  }
 
   async chatWithAI(message: string) {
     const spinner = ora("Thinking...").start();
+    let messages: { role: "system" | "user" | "assistant"; content: string }[] =
+      [];
 
     try {
-      const tools = await this.getMCPTools();
-      const systemPrompt = `You are an AI assistant that works step-by-step to accomplish user requests. Your job is to determine the NEXT SINGLE ACTION to take.
+      const tools = await this.mcpInteraction.getMCPTools();
 
-                            Available tools: ${tools
-                              .map((t) => t.function.name)
-                              .join(", ")}
+      // Debug: Show available tools
+      if (tools.length > 0) {
+        console.log(
+          chalk.green(
+            `\n🔧 Available tools: ${tools
+              .map((t) => t.function.name)
+              .join(", ")}`
+          )
+        );
+      } else {
+        console.log(chalk.yellow("\n⚠️  No tools available"));
+      }
 
-                            Rules:
-                            1. Analyze the user request and determine what the very next step should be
-                            2. Create a very short reasoning for the next action to take
-                            3. Choose ONE specific action to take right now
-                            4. If you need to use a tool, specify exactly which tool and what parameters
-                            5. Be specific and actionable - don't plan ahead, just do the next thing
-                            6. Respond with ONLY the next action in this format:
-                            7. If you don't need to use a tool, respond with "NO TOOLS NEEDED"
+      const systemPrompt = `You are an AI assistant that helps users accomplish tasks. You have access to powerful tools that you should use whenever they would be helpful.
 
-                            NEXT ACTION: [Specific action to take now]
+Available tools: ${tools
+        .map(
+          (t) =>
+            `${t.function.name}: ${t.function.description || "No description"}`
+        )
+        .join("\n")}
 
-                            Examples:
-                            NEXT ACTION: Use list_directories to explore the current directory
-                            NEXT ACTION: Use get_file_content to read the package.json file
-                            NEXT ACTION: Use list_files to see what files are in the src folder`;
+Guidelines:
+1. Use tools whenever they would help answer the user's question or complete their request
+2. If you need to explore files, directories, or get information, use the appropriate tools
+3. Be proactive in using tools - don't just provide general advice when you can get specific information
+4. If you use a tool, explain what you found and how it helps answer the question
+5. If no tools are needed, provide a helpful response directly
 
-      const history: string[] = [];
-      let useTools = false;
-      // Send initial ai request
+Remember: You have these tools available, so use them when they would be helpful!`;
+
+      messages.push({ role: "system", content: systemPrompt });
+      messages.push({ role: "user", content: message });
+
+      let iterations = 0;
+
       while (true) {
+        console.log(chalk.blue(`\n--- Iteration ${iterations + 1} ---`));
+
+        // Send request with tools enabled
         const response = await this.sendAIRequest(
-          message,
-          systemPrompt,
-          history,
-          useTools
+          messages,
+          true // Always enable tools
         );
+
+        if (response === null) {
+          console.error(chalk.red("No response from AI."));
+          break;
+        }
+
+        // Add the AI's response to the conversation
+        messages.push({
+          role: "assistant",
+          content: response.message.content || "",
+        });
+
+        // Execute tools if the AI decided to use them
         if (
-          response === null ||
-          response.message.content.includes("NO TOOLS NEEDED")
+          response.message.tool_calls &&
+          response.message.tool_calls.length > 0
         ) {
-          console.error(chalk.red("No response from AI."));
+          console.log(chalk.yellow("\n🔧 Executing tools..."));
+
+          for (const toolCall of response.message.tool_calls) {
+            try {
+              console.log(chalk.cyan(`\nCalling: ${toolCall.function.name}`));
+              const result = await this.mcpInteraction.callMCPTool(
+                toolCall.function.name,
+                toolCall.function.arguments
+              );
+
+              console.log(chalk.green("\n📄 Tool Result:"));
+              console.log(chalk.white((result as any).content[0].text));
+
+              // Add tool result to conversation
+              messages.push({
+                role: "assistant",
+                content: (result as any).content[0].text,
+              });
+            } catch (error) {
+              console.log(chalk.red("Tool execution failed:"), error);
+              messages.push({
+                role: "assistant",
+                content: `Tool execution failed: ${error}`,
+              });
+            }
+          }
+        } else {
+          console.log(chalk.blue("\n💭 AI Response:"));
+          console.log(chalk.white(response.message.content));
+
+          // If AI provided a complete response without tools, we're done
           break;
         }
-        console.log(chalk.cyan("\n🤖 AI Response:"));
-        console.log(chalk.white(response.message.content));
 
-        history.push(
-          "System Prompt:\n" +
-            systemPrompt +
-            "\n\nUser Prompt:\n" +
-            message +
-            "\n\nAI Response:\n" +
-            response.message.content
-        );
-
-        useTools = true;
-        const nextResponse = await this.sendAIRequest(
-          response.message.content,
-          systemPrompt,
-          history,
-          useTools
-        );
-        if (nextResponse === null) {
-          console.error(chalk.red("No response from AI."));
+        iterations++;
+        if (iterations > 10) {
+          console.error(chalk.red("Maximum iterations reached"));
           break;
         }
-
-        if (nextResponse.message.tool_calls) {
-          let result = await this.callMCPTool(
-            nextResponse.message.tool_calls[0].function.name,
-            nextResponse.message.tool_calls[0].function.arguments
-          );
-          console.log(chalk.cyan("\n🤖 AI Response:"));
-          console.log(chalk.white(result.content[0].text));
-        }
-        break;
       }
       spinner.stop();
       return;
@@ -221,10 +172,5 @@ export class AIInteraction {
   // Method to update the current model
   updateModel(newModel: string) {
     this.currentModel = newModel;
-  }
-
-  // Method to update MCP servers
-  updateMCPServers(mcpServers: MCPServer[]) {
-    this.mcpServers = mcpServers;
   }
 }

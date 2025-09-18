@@ -9,20 +9,24 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { spawn } from "child_process";
 import { join } from "path";
-import { AIInteraction, MCPServer } from "./ai-interaction.js";
+import { AIInteraction } from "./ai-interaction.js";
+import { MCPInteraction, MCPServer } from "./mcp-interaction.js";
 
 
 class AICLIAgent {
   private ollama: Ollama;
-  private mcpServers: MCPServer[] = [];
   private currentModel: string = "llama3.2";
   private aiInteraction: AIInteraction;
+  private mcpServers: MCPServer[] = [];
+  private mcpInteraction: MCPInteraction;
 
   constructor() {
     this.ollama = new Ollama({
       host: "http://localhost:11434",
     });
-    this.aiInteraction = new AIInteraction(this.ollama, this.mcpServers, this.currentModel);
+
+    this.mcpInteraction = new MCPInteraction(this.mcpServers);
+    this.aiInteraction = new AIInteraction(this.ollama, this.mcpInteraction, this.currentModel);
   }
 
   async initialize() {
@@ -74,7 +78,7 @@ class AICLIAgent {
       });
       
       // Update AI interaction with new MCP servers
-      this.aiInteraction.updateMCPServers(this.mcpServers);
+      this.mcpInteraction.updateMCPServers(this.mcpServers);
 
       spinner.succeed("MCP servers started successfully");
     } catch (error) {
@@ -155,7 +159,7 @@ class AICLIAgent {
           break;
 
         case "tools":
-          await this.aiInteraction.getMCPTools();
+          await this.mcpInteraction.getMCPTools();
           break;
 
         case "exit":
@@ -168,7 +172,7 @@ class AICLIAgent {
   }
 
   async runMCPTool() {
-    const tools = await this.aiInteraction.getMCPTools();
+    const tools = await this.mcpInteraction.getMCPTools();
     if (tools.length === 0) {
       console.log(chalk.yellow("No MCP tools available"));
       return;
@@ -212,7 +216,7 @@ class AICLIAgent {
 
     const spinner = ora("Executing tool...").start();
     try {
-      const result = await this.aiInteraction.callMCPTool(toolName, args);
+      const result = await this.mcpInteraction.callMCPTool(toolName, args);
       spinner.succeed("Tool executed successfully");
       console.log(chalk.green("\n📄 Result:"));
       console.log((result as any).content[0].text);
