@@ -54,6 +54,16 @@ The agent automatically connects to MCP servers and provides access to:
 
 ## Configuration
 
+### Environment Variables
+Create a `.env` file in the `cli-agent` directory with the following content:
+
+```bash
+# Sentry Configuration
+SENTRY_DSN=yourSentrydsn,
+```
+
+**Note**: The `.env` file is already included in `.gitignore` and will not be committed to version control.
+
 ### Ollama Connection
 The agent connects to Ollama at `http://localhost:11434`. Make sure Ollama is running:
 

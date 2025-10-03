@@ -1,5 +1,14 @@
 #!/usr/bin/env node
 
+// IMPORTANT: Make sure to import `instrument.js` at the top of your file.
+// If you are using ECMAScript Modules (ESM) syntax, use `import "./instrument.js";`
+
+import * as Sentry from "@sentry/node";
+import { RewriteFrames } from "@sentry/integrations";
+import { config } from "dotenv";
+
+// Load environment variables from .env file
+config();
 import { program } from "commander";
 import { ChatResponse, Ollama } from "ollama";
 import chalk from "chalk";
@@ -12,6 +21,14 @@ import { join } from "path";
 import { AIInteraction } from "./ai-interaction.js";
 import { MCPInteraction, MCPServer } from "./mcp-interaction.js";
 
+Sentry.init({
+  dsn: process.env.SENTRY_DSN,
+  // Tracing
+  tracesSampleRate: 1.0, //  Capture 100% of the transactions
+  // Setting this option to true will send default PII data to Sentry.
+  // For example, automatic IP address collection on events
+  sendDefaultPii: true,
+});
 
 class AICLIAgent {
   private ollama: Ollama;
@@ -26,7 +43,11 @@ class AICLIAgent {
     });
 
     this.mcpInteraction = new MCPInteraction(this.mcpServers);
-    this.aiInteraction = new AIInteraction(this.ollama, this.mcpInteraction, this.currentModel);
+    this.aiInteraction = new AIInteraction(
+      this.ollama,
+      this.mcpInteraction,
+      this.currentModel
+    );
   }
 
   async initialize() {
@@ -76,7 +97,7 @@ class AICLIAgent {
         process: transport, // Store transport instead of process
         client: client,
       });
-      
+
       // Update AI interaction with new MCP servers
       this.mcpInteraction.updateMCPServers(this.mcpServers);
 
@@ -155,6 +176,11 @@ class AICLIAgent {
           break;
 
         case "model":
+          try {
+            throw new Error("test");
+          } catch (error) {
+            Sentry.captureException(error);
+          }
           await this.changeModel();
           break;
 
