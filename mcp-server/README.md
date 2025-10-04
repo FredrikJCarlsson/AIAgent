@@ -12,28 +12,74 @@ A Model Context Protocol (MCP) server that provides file system tools for AI age
 
 ## Installation
 
+### Local Installation
 ```bash
 npm install
 npm run build
 ```
 
+### Docker Installation
+```bash
+# Build the Docker image
+docker build -t mcp-server .
+
+# Or use docker-compose
+docker-compose build
+```
+
 ## Usage
 
-### As MCP Server
+### Local Usage
+
+#### As MCP Server
 The server is designed to be used by MCP clients (like the AI CLI Agent):
 
 ```bash
 npm start
 ```
 
-### With Custom Base Path
+#### With Custom Base Path
 ```bash
 npm start -- --path /path/to/base/directory
 ```
 
-### Development Mode
+#### Development Mode
 ```bash
 npm run dev
+```
+
+### Docker Usage
+
+#### Production Mode
+```bash
+# Run with docker-compose
+docker-compose up -d
+
+# Or run directly with Docker
+docker run -d --name mcp-server \
+  -v /path/to/workspace:/app/workspace:ro \
+  mcp-server
+```
+
+#### Development Mode
+```bash
+# Run development container with live reload
+docker-compose --profile dev up mcp-server-dev
+
+# Or build and run development container
+docker build -f Dockerfile.dev -t mcp-server-dev .
+docker run -it --rm \
+  -v $(pwd):/app \
+  -v /app/node_modules \
+  mcp-server-dev
+```
+
+#### Custom Base Path with Docker
+```bash
+# Override the default workspace path
+docker run -it --rm \
+  -v /your/custom/path:/app/workspace:ro \
+  mcp-server node dist/index.js --path /app/workspace
 ```
 
 ## Available Tools
@@ -100,6 +146,7 @@ The server provides clear error messages for common issues:
 
 ## Development
 
+### Local Development
 ```bash
 # Development mode with hot reload
 npm run dev
@@ -109,6 +156,21 @@ npm run build
 
 # Run built version
 npm start
+```
+
+### Docker Development
+```bash
+# Build development image
+docker build -f Dockerfile.dev -t mcp-server-dev .
+
+# Run development container with live reload
+docker-compose --profile dev up mcp-server-dev
+
+# Or run interactively
+docker run -it --rm \
+  -v $(pwd):/app \
+  -v /app/node_modules \
+  mcp-server-dev
 ```
 
 ## Integration
@@ -122,3 +184,20 @@ This MCP server is designed to work with:
 
 - `@modelcontextprotocol/sdk` - MCP server implementation
 - `commander` - CLI argument parsing
+
+## Docker Configuration
+
+The project includes comprehensive Docker support:
+
+- **Dockerfile**: Multi-stage production build with security best practices
+- **Dockerfile.dev**: Development container with live reload
+- **docker-compose.yml**: Orchestration for both production and development
+- **.dockerignore**: Optimized build context
+
+### Docker Features
+
+- 🔒 **Security**: Non-root user, read-only workspace mounts
+- 🚀 **Performance**: Multi-stage builds, optimized layers
+- 🔄 **Development**: Live reload, volume mounts for development
+- 📊 **Monitoring**: Health checks and proper logging
+- 🛠️ **Flexibility**: Configurable base paths and environments

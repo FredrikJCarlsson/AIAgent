@@ -1,0 +1,26 @@
+# Development Dockerfile for MCP Server
+FROM node:20-alpine
+
+# Set working directory
+WORKDIR /app
+
+# Install development dependencies
+RUN apk add --no-cache git
+
+# Copy package files
+COPY package*.json ./
+
+# Install all dependencies (including dev dependencies)
+RUN npm install
+
+# Copy source code and config
+COPY . .
+
+# Create workspace directory
+RUN mkdir -p /app/workspace
+
+# Expose port for potential HTTP transport in development
+EXPOSE 3000
+
+# Default command for development
+CMD ["npm", "run", "dev"]

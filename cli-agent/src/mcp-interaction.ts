@@ -72,6 +72,7 @@ export class MCPInteraction {
     if (allTools.length === 0) {
       console.log(chalk.yellow("No MCP tools available"));
     }
+    // console.log(chalk.green(`All MCP tools:`), allTools);
 
     return allTools;
   }

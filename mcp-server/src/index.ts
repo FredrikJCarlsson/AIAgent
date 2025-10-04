@@ -102,7 +102,7 @@ class FileSystemMCPServer {
     });
   }
 
-  private async listFiles(relativePath: string) {
+  private async listFiles(relativePath: string): Promise<{ content: { type: string; text: string }[] }> {
     const fullPath = join(this.basePath, relativePath);
     const stats = await stat(fullPath);
     
@@ -127,7 +127,7 @@ class FileSystemMCPServer {
     };
   }
 
-  private async listDirectories(relativePath: string) {
+  private async listDirectories(relativePath: string): Promise<{ content: { type: string; text: string }[] }> {
     const fullPath = join(this.basePath, relativePath);
     const stats = await stat(fullPath);
     
@@ -154,7 +154,7 @@ class FileSystemMCPServer {
     };
   }
 
-  private async getFileContent(relativePath: string) {
+  private async getFileContent(relativePath: string): Promise<{ content: { type: string; text: string }[] }> {
     if (!relativePath) {
       throw new Error('File path is required');
     }
@@ -178,8 +178,31 @@ class FileSystemMCPServer {
     };
   }
 
+  private async findFileFromPath(relativePath: string, fileName: string): Promise<{ content: { list: string[] }}> {
+    const files = await this.listFiles(relativePath);
+    const matchingFiles: string[] = [];
+    
+    // if (files.content.length > 0) {
+    //   const fileList = JSON.parse(files.content[0].text);
+    //   for (const file of fileList) {
+    //     if (file.type === 'file' && file.name.contains(fileName)) {
+    //       matchingFiles.push(file.path);
+    //     }
+    //   }
+    // }
+    
+    return {
+      content: {
+        list: matchingFiles,
+      },
+    }
+  }
+
   async run() {
     const transport = new StdioServerTransport();
+
+    // await this.findFileFromPath(".", "README.md");
+
     await this.server.connect(transport);
     console.error('MCP File System Server running on stdio');
   }
