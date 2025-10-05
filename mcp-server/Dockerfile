@@ -1,6 +1,9 @@
 # Multi-stage build for MCP Server
 FROM node:20-alpine AS builder
 
+# Update packages and install security patches
+RUN apk update && apk upgrade && apk add --no-cache dumb-init
+
 # Set working directory
 WORKDIR /app
 
@@ -19,6 +22,9 @@ RUN npm run build
 
 # Production stage
 FROM node:20-alpine AS production
+
+# Update packages and install security patches
+RUN apk update && apk upgrade && apk add --no-cache dumb-init
 
 # Create app user for security
 RUN addgroup -g 1001 -S nodejs && \
@@ -44,11 +50,11 @@ RUN mkdir -p /app/workspace && \
 USER mcpuser
 
 # Expose port (if needed for future HTTP transport)
-EXPOSE 3000
+EXPOSE 3123
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD node -e "console.log('Health check passed')" || exit 1
 
-# Default command
-CMD ["node", "dist/index.js"]
+# Default command with dumb-init for proper signal handling
+CMD ["dumb-init", "node", "dist/index.js"]
