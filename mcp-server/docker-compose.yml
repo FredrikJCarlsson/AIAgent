@@ -1,12 +1,12 @@
-version: '3.8'
-
 services:
   mcp-server:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: mcp-server
-    restart: unless-stopped
+    restart: "no"  # Don't restart automatically since it's a stdio server
+    stdin_open: true  # Keep stdin open for stdio communication
+    tty: true  # Allocate a pseudo-TTY
     # Since MCP server uses stdio transport, we don't need to expose ports
     # but we can mount a workspace directory for file operations
     volumes:
@@ -15,14 +15,8 @@ services:
     environment:
       - NODE_ENV=production
     # Override the default command to specify a base path
-    command: ["node", "dist/index.js", "--path", "/app/workspace"]
-    # Health check
-    healthcheck:
-      test: ["CMD", "node", "-e", "console.log('Health check passed')"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
+    command: ["dumb-init", "node", "dist/index.js", "--path", "/app/workspace"]
+    # Remove health check since stdio servers don't work well with health checks
 
   # Development service with live reload
   mcp-server-dev:
@@ -30,6 +24,8 @@ services:
       context: .
       dockerfile: Dockerfile.dev
     container_name: mcp-server-dev
+    stdin_open: true
+    tty: true
     volumes:
       - .:/app
       - /app/node_modules

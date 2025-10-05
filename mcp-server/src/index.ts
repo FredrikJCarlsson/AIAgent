@@ -215,8 +215,12 @@ program
   .version('1.0.0')
   .option('-p, --path <path>', 'Base path for file operations', process.cwd())
   .action(async (options) => {
-    const server = new FileSystemMCPServer(options.path);
-    await server.run();
+    try {
+      const server = new FileSystemMCPServer(options.path);
+      await server.run();
+    } catch (error) {
+      console.error('Error starting MCP server:', error);
+    }
   });
 
 program.parse();
